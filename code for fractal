@@ -1,0 +1,103 @@
+"""
+julia_set.py
+============
+
+Standalone Julia set renderer. No argparse, no CLI — just edit the
+parameters below and run. Safe to paste directly into a Colab/Jupyter
+cell since it never touches sys.argv.
+"""
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import LinearSegmentedColormap
+
+
+# ----------------------------------------------------------------------
+# Parameters — edit these
+# ----------------------------------------------------------------------
+
+C = complex(-0.7, 0.27015)   # the Julia constant; try -0.8+0.156j, -0.4+0.6j, 0.285+0.01j
+MAX_ITER = 300
+WIDTH, HEIGHT = 900, 700
+XMIN, XMAX = -1.6, 1.6
+YMIN, YMAX = -1.2, 1.2
+OUT_FILE = "julia.png"
+
+
+FRACTAL_CMAP = LinearSegmentedColormap.from_list(
+    "fractal",
+    ["#03071e", "#370617", "#6a040f", "#9d0208", "#d00000",
+     "#dc2f02", "#e85d04", "#f48c06", "#faa307", "#ffba08", "#ffffff"],
+)
+
+
+def escape_time(c, z0, max_iter=300, bailout=4.0):
+    """
+    Vectorized smooth escape-time computation for a Julia set.
+
+    c  : the fixed complex constant for this Julia set (scalar).
+    z0 : complex numpy array — the grid of starting points (one per pixel).
+
+    Returns a float array of smooth (continuous) escape values in
+    [0, max_iter]; points that never escape get max_iter.
+    """
+    z = z0.copy()
+    c = np.zeros_like(z) + c
+    smooth = np.full(z.shape, max_iter, dtype=np.float64)
+    escaped = np.zeros(z.shape, dtype=bool)
+
+    for i in range(max_iter):
+        not_done = ~escaped
+        z[not_done] = z[not_done] * z[not_done] + c[not_done]
+        newly = (~escaped) & (np.abs(z) > bailout)
+        if newly.any():
+            mag = np.abs(z[newly])
+            smooth[newly] = (i + 1) - np.log(np.log(mag)) / np.log(2)
+            escaped |= newly
+        if escaped.all():
+            break
+    return smooth, escaped
+
+
+def make_grid(xmin, xmax, ymin, ymax, width, height):
+    xs = np.linspace(xmin, xmax, width)
+    ys = np.linspace(ymin, ymax, height)
+    re, im = np.meshgrid(xs, ys)
+    return re + 1j * im
+
+
+def render_escape_image(smooth, escaped, max_iter):
+    """Turn a smooth escape-time array into a normalized image array."""
+    img = smooth.copy()
+    img[~escaped] = 0.0            # interior (never-escaped) stays solid
+    if img[escaped].size:
+        img[escaped] = img[escaped] - img[escaped].min()
+        m = img[escaped].max()
+        if m > 0:
+            img[escaped] = img[escaped] / m
+    return img
+
+
+def julia_image(c_const, xmin=XMIN, xmax=XMAX, ymin=YMIN, ymax=YMAX,
+                 width=WIDTH, height=HEIGHT, max_iter=MAX_ITER):
+    z0 = make_grid(xmin, xmax, ymin, ymax, width, height)
+    smooth, escaped = escape_time(c_const, z0, max_iter=max_iter)
+    return render_escape_image(smooth, escaped, max_iter)
+
+
+# ----------------------------------------------------------------------
+# Render and save
+# ----------------------------------------------------------------------
+
+img = julia_image(C)
+
+fig, ax = plt.subplots(figsize=(8, 6.2))
+fig.patch.set_facecolor("black")
+ax.imshow(img, extent=[XMIN, XMAX, YMIN, YMAX], origin="lower", cmap=FRACTAL_CMAP)
+ax.set_title(f"Julia Set  (c = {C})", color="white")
+ax.set_facecolor("black")
+ax.tick_params(colors="white")
+
+plt.savefig(OUT_FILE, dpi=150, facecolor="black")
+print(f"Saved {OUT_FILE}")
+plt.show()
